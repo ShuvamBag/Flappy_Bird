@@ -44,6 +44,10 @@ class _GamePageState extends State<GamePage> {
   double _birdSize = 60;
   double _treeWidth = 60;
   Timer? _gameTimer;
+  bool _isDying = false;
+  double _deathVelocity = 0;
+  double _birdRotation = 0;
+  int _deathRestTicks = 0;
 
   double get _firstTreeHeight =>
       _playfieldSize.height * TreeObstacle.heightFactors[_firstTreeSize];
@@ -125,6 +129,10 @@ class _GamePageState extends State<GamePage> {
     _gameTimer?.cancel();
     setState(() {
       birdYaxis = 0;
+      _isDying = false;
+      _deathVelocity = 0;
+      _birdRotation = 0;
+      _deathRestTicks = 0;
       gamehasstartted = false;
       time = 0;
       initialheight = birdYaxis;
@@ -151,6 +159,23 @@ class _GamePageState extends State<GamePage> {
 
   void _endGame(Timer timer) {
     timer.cancel();
+    gamehasstartted = false;
+    final finalScore = score;
+    setState(() {
+      score = 0;
+    });
+    showdialog(finalScore.toString());
+  }
+
+  void _startDying(Timer timer) {
+    _isDying = true;
+    _deathVelocity = 0.025;
+    _deathRestTicks = 0;
+  }
+
+  void _finishDying(Timer timer) {
+    timer.cancel();
+    _isDying = false;
     gamehasstartted = false;
     final finalScore = score;
     setState(() {
@@ -226,6 +251,21 @@ class _GamePageState extends State<GamePage> {
         return;
       }
 
+      if (_isDying) {
+        if (birdYaxis < 0.88) {
+          _deathVelocity += 0.018;
+          birdYaxis = (birdYaxis + _deathVelocity).clamp(-1.0, 0.88);
+          _birdRotation = (_birdRotation + 0.14).clamp(0.0, 1.35);
+        } else if (++_deathRestTicks >= 5) {
+          birdYaxis = 0.88;
+          setState(() {});
+          _finishDying(timer);
+          return;
+        }
+        setState(() {});
+        return;
+      }
+
       time = time + 0.05;
       height = -4.9 * time * time + 2.8 * time;
       birdYaxis = initialheight - height;
@@ -273,7 +313,12 @@ class _GamePageState extends State<GamePage> {
 
       final hitTree = _hitsTree(treeXone, treeYone, _firstTreeHeight) ||
           _hitsTree(treeXtwo, treeYtwo, _secondTreeHeight);
-      if (hitTree || birdYaxis < -1 || birdYaxis > 1) {
+      if (hitTree) {
+        _startDying(timer);
+        setState(() {});
+        return;
+      }
+      if (birdYaxis < -1 || birdYaxis > 1) {
         _endGame(timer);
         return;
       }
@@ -286,6 +331,7 @@ class _GamePageState extends State<GamePage> {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
+        if (_isDying) return;
         player.play(AssetSource('sounds/flap.mp3'));
         setState(() {
           score++;
@@ -368,7 +414,10 @@ class _GamePageState extends State<GamePage> {
                             ),
                             Align(
                               alignment: Alignment(0, birdYaxis),
-                              child: Bird(size: _birdSize),
+                              child: Transform.rotate(
+                                angle: _birdRotation,
+                                child: Bird(size: _birdSize),
+                              ),
                             ),
                             if (!gamehasstartted)
                               Align(
