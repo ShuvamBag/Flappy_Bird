@@ -416,7 +416,7 @@ class _GamePageState extends State<GamePage> {
                               alignment: Alignment(0, birdYaxis),
                               child: Transform.rotate(
                                 angle: _birdRotation,
-                                child: Bird(size: _birdSize),
+                                child: Bird(size: _birdSize, dying: _isDying),
                               ),
                             ),
                             if (!gamehasstartted)
