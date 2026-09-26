@@ -1,0 +1,10 @@
+Artwork: Kenney Platformer Art Deluxe, Base pack.
+License: CC0 1.0 Universal.
+Source: https://kenney.nl/assets/platformer-art-deluxe
+
+Included sprites: grass, grassMid, grassMid's cropped top fringe, dirtMid, rock,
+plant, plantPurple, bush, mushroomRed, mushroomBrown, treeTop, treeTrunk,
+treeTrunkBottom.
+
+The tree leaves were cropped from the CC0 Foliage Pack atlas:
+https://kenney.nl/assets/foliage-pack
