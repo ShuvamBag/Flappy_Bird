@@ -39,6 +39,9 @@ dependencies:
   multi_tap_detector: ^1.0.0
   audioplayers: ^6.8.1
   shared_preferences: ^2.5.5
+  firebase_core: ^4.15.0
+  firebase_auth: ^6.7.0
+  firebase_database: ^12.6.0
 
 
 

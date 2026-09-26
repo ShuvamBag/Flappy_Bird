@@ -1,0 +1,26 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "leaderboard": {
+      ".read": "auth != null",
+      ".indexOn": ["score"],
+      "$playerKey": {
+        ".write": "auth != null && newData.hasChildren(['name', 'normalizedName', 'score']) && $playerKey === newData.child('normalizedName').val() && (!data.exists() || (newData.child('normalizedName').val() === data.child('normalizedName').val() && newData.child('score').val() > data.child('score').val()))",
+        ".validate": "newData.hasChildren(['name', 'normalizedName', 'score'])",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16"
+        },
+        "normalizedName": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 256"
+        },
+        "score": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() % 1 === 0"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}

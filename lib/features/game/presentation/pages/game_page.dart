@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutterprojects/features/game/data/firebase_leaderboard.dart';
 import 'package:flutterprojects/features/game/domain/game_collision.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/bird.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/cloud.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/lawn.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/tree_obstacle.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
@@ -18,11 +21,14 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage> {
   static const _worldScrollSpeed = 0.05;
+  static const _playerNameKey = 'player_name';
 
   final player = AudioPlayer();
   final math.Random _random = math.Random();
   final List<_CloudState> _clouds = [];
   final List<_GroundPropState> _groundProps = [];
+  final TextEditingController _nameController = TextEditingController();
+  String? _playerName;
 
   double birdYaxis = 0;
   int score = 0;
@@ -164,7 +170,7 @@ class _GamePageState extends State<GamePage> {
     setState(() {
       score = 0;
     });
-    showdialog(finalScore.toString());
+    unawaited(_presentGameOver(finalScore));
   }
 
   void _startDying(Timer timer) {
@@ -181,17 +187,96 @@ class _GamePageState extends State<GamePage> {
     setState(() {
       score = 0;
     });
-    showdialog(finalScore.toString());
+    unawaited(_presentGameOver(finalScore));
+  }
+
+  Future<bool> _ensurePlayerName() async {
+    final preferences = await SharedPreferences.getInstance();
+    final savedName = preferences.getString(_playerNameKey)?.trim();
+    if (savedName != null && savedName.isNotEmpty) {
+      _playerName = savedName;
+      return true;
+    }
+    if (!mounted) return false;
+
+    final enteredName = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.brown.shade700,
+        title: Text(
+          'ENTER YOUR NAME',
+          style: GoogleFonts.play(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: TextField(
+          controller: _nameController,
+          autofocus: true,
+          maxLength: 16,
+          textCapitalization: TextCapitalization.words,
+          inputFormatters: [FilteringTextInputFormatter.singleLineFormatter],
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Player name',
+            hintStyle: TextStyle(color: Colors.white70),
+            counterStyle: TextStyle(color: Colors.white70),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white70),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white),
+            ),
+          ),
+          onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, _nameController.text.trim()),
+            child: const Text('PLAY'),
+          ),
+        ],
+      ),
+    );
+
+    final name = enteredName?.trim();
+    if (name == null || !mounted) return false;
+    _playerName = name.isEmpty ? 'Player' : name;
+    await preferences.setString(_playerNameKey, _playerName!);
+    return true;
+  }
+
+  Future<void> _presentGameOver(int finalScore) async {
+    var topFive = <Map<String, dynamic>>[];
+    String? leaderboardError;
+    try {
+      await FirebaseLeaderboard.instance.submitScore(
+        name: _playerName ?? 'Player',
+        score: finalScore,
+      );
+      topFive = await FirebaseLeaderboard.instance.getTopFive();
+    } catch (_) {
+      leaderboardError = 'ONLINE LEADERBOARD UNAVAILABLE';
+    }
+    if (!mounted) return;
+    showdialog(finalScore, topFive, leaderboardError: leaderboardError);
   }
 
   @override
   void dispose() {
     _gameTimer?.cancel();
+    _nameController.dispose();
     unawaited(player.dispose());
     super.dispose();
   }
 
-  void showdialog(String score) {
+  void showdialog(
+    int finalScore,
+    List<Map<String, dynamic>> leaderboard, {
+    String? leaderboardError,
+  }) {
     showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -207,17 +292,54 @@ class _GamePageState extends State<GamePage> {
                     fontWeight: FontWeight.bold),
               ),
             ),
-            actions: [
-              Text(
-                "SCORE : $score",
-                style: GoogleFonts.play(
-                    fontSize: 20,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'SCORE : $finalScore',
+                  style: GoogleFonts.play(
+                      fontSize: 20,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'TOP 5',
+                  style: GoogleFonts.play(
+                    fontSize: 18,
                     color: Colors.white,
-                    fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(
-                width: 30,
-              ),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (leaderboardError != null)
+                  Text(
+                    leaderboardError,
+                    style: GoogleFonts.play(
+                      fontSize: 13,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  )
+                else
+                  for (var index = 0; index < leaderboard.length; index++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        '${index + 1}. ${leaderboard[index]['name']}  ${leaderboard[index]['score']}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.play(
+                          fontSize: 15,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+              ],
+            ),
+            actions: [
               InkWell(
                 onTap: resetGame,
                 child: ClipRRect(
@@ -330,8 +452,10 @@ class _GamePageState extends State<GamePage> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         if (_isDying) return;
+        if (_playerName == null && !await _ensurePlayerName()) return;
+        if (!mounted) return;
         player.play(AssetSource('sounds/flap.mp3'));
         setState(() {
           score++;
