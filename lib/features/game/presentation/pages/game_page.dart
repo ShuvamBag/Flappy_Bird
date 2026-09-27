@@ -11,6 +11,7 @@ import 'package:flutterprojects/features/game/presentation/widgets/lawn.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/tree_obstacle.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
@@ -21,9 +22,11 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage> {
   static const _worldScrollSpeed = 0.05;
+  static const _simulationStep = 0.5;
   static const _playerNameKey = 'player_name';
 
-  final player = AudioPlayer();
+  late final Future<AudioPool> _flapSoundPool;
+  late final Future<AudioPool> _gameOverSoundPool;
   final math.Random _random = math.Random();
   final List<_CloudState> _clouds = [];
   final List<_GroundPropState> _groundProps = [];
@@ -37,6 +40,7 @@ class _GamePageState extends State<GamePage> {
   double height = 0;
   double initialheight = 0;
   bool gamehasstartted = false;
+  bool _isGameOver = false;
   double treeXone = 1;
   double treeXtwo = 2.7;
   double treeYone = 1.1;
@@ -64,9 +68,29 @@ class _GamePageState extends State<GamePage> {
   @override
   void initState() {
     super.initState();
+    // Prepare the short effects before they are needed. Calling play(AssetSource)
+    // on every tap makes mobile browsers fetch/decode the sound on the hot path.
+    _flapSoundPool = AudioPool.createFromAsset(
+      path: 'sounds/flap.mp3',
+      minPlayers: 1,
+      maxPlayers: 3,
+    );
+    _gameOverSoundPool = AudioPool.createFromAsset(
+      path: 'sounds/negative_beeps-6008.mp3',
+      minPlayers: 1,
+      maxPlayers: 1,
+    );
     _randomizeTrees();
     _resetClouds();
     _resetGroundProps();
+  }
+
+  Future<void> _playSound(Future<AudioPool> pool) async {
+    try {
+      await (await pool).start();
+    } catch (_) {
+      // Audio is optional; a browser may block playback before user interaction.
+    }
   }
 
   void _randomizeTrees() {
@@ -140,6 +164,7 @@ class _GamePageState extends State<GamePage> {
       _birdRotation = 0;
       _deathRestTicks = 0;
       gamehasstartted = false;
+      _isGameOver = false;
       time = 0;
       initialheight = birdYaxis;
       treeXone = 1;
@@ -166,6 +191,7 @@ class _GamePageState extends State<GamePage> {
   void _endGame(Timer timer) {
     timer.cancel();
     gamehasstartted = false;
+    _isGameOver = true;
     final finalScore = score;
     setState(() {
       score = 0;
@@ -183,6 +209,7 @@ class _GamePageState extends State<GamePage> {
     timer.cancel();
     _isDying = false;
     gamehasstartted = false;
+    _isGameOver = true;
     final finalScore = score;
     setState(() {
       score = 0;
@@ -260,6 +287,17 @@ class _GamePageState extends State<GamePage> {
   }
 
   Future<void> _presentGameOver(int finalScore) async {
+    final leaderboard = ValueNotifier<_LeaderboardState>(
+      const _LeaderboardState(loading: true),
+    );
+    unawaited(_playSound(_gameOverSoundPool));
+    var dialogIsOpen = true;
+    var requestIsComplete = false;
+    unawaited(showdialog(finalScore, leaderboard).whenComplete(() {
+      dialogIsOpen = false;
+      if (requestIsComplete) leaderboard.dispose();
+    }));
+
     var topFive = <Map<String, dynamic>>[];
     String? leaderboardError;
     try {
@@ -271,106 +309,203 @@ class _GamePageState extends State<GamePage> {
     } catch (_) {
       leaderboardError = 'ONLINE LEADERBOARD UNAVAILABLE';
     }
-    if (!mounted) return;
-    showdialog(finalScore, topFive, leaderboardError: leaderboardError);
+    if (mounted && dialogIsOpen) {
+      leaderboard.value = _LeaderboardState(
+        entries: topFive,
+        error: leaderboardError,
+      );
+    }
+    requestIsComplete = true;
+    if (!dialogIsOpen) leaderboard.dispose();
   }
 
   @override
   void dispose() {
     _gameTimer?.cancel();
     _nameController.dispose();
-    unawaited(player.dispose());
+    unawaited(_disposeSoundPool(_flapSoundPool));
+    unawaited(_disposeSoundPool(_gameOverSoundPool));
     super.dispose();
   }
 
-  void showdialog(
+  Future<void> _disposeSoundPool(Future<AudioPool> pool) async {
+    try {
+      await (await pool).dispose();
+    } catch (_) {
+      // The pool may not have initialized if the browser failed to load audio.
+    }
+  }
+
+  Future<void> showdialog(
     int finalScore,
-    List<Map<String, dynamic>> leaderboard, {
-    String? leaderboardError,
-  }) {
-    showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          player.play(AssetSource('sounds/negative_beeps-6008.mp3'));
-          return AlertDialog(
+    ValueNotifier<_LeaderboardState> leaderboard,
+  ) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) => PopScope<void>(
+        canPop: false,
+        child: ValueListenableBuilder<_LeaderboardState>(
+          valueListenable: leaderboard,
+          builder: (context, state, _) => AlertDialog(
             backgroundColor: Colors.brown.shade700,
             title: Center(
               child: Text(
-                "G A M E  O V E R ",
+                'GAME OVER',
                 style: GoogleFonts.play(
-                    fontSize: 20,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold),
+                  fontSize: 22,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'SCORE : $finalScore',
-                  style: GoogleFonts.play(
-                      fontSize: 20,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'TOP 5',
-                  style: GoogleFonts.play(
-                    fontSize: 18,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (leaderboardError != null)
-                  Text(
-                    leaderboardError,
-                    style: GoogleFonts.play(
-                      fontSize: 13,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  )
-                else
-                  for (var index = 0; index < leaderboard.length; index++)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text(
-                        '${index + 1}. ${leaderboard[index]['name']}  ${leaderboard[index]['score']}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.play(
-                          fontSize: 15,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 340),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Text(
+                      'SCORE  $finalScore',
+                      style: GoogleFonts.play(
+                        fontSize: 21,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-              ],
-            ),
-            actions: [
-              InkWell(
-                onTap: resetGame,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(5),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    color: Colors.white,
-                    child: Text(
-                      "PLAY AGAIN",
-                      style: GoogleFonts.play(
-                          fontSize: 10,
-                          color: Colors.grey[800],
-                          fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0x29000000),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'LEADERBOARD',
+                          style: GoogleFonts.play(
+                            fontSize: 17,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        if (state.loading)
+                          const _LeaderboardLoading()
+                        else if (state.error != null)
+                          Text(
+                            state.error!,
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.play(
+                              fontSize: 13,
+                              color: Colors.white70,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        else if (state.entries.isEmpty)
+                          Text(
+                            'No scores yet. Be the first!',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.play(color: Colors.white70),
+                          )
+                        else
+                          for (var index = 0;
+                              index < state.entries.length;
+                              index++)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 32,
+                                    child: Text(
+                                      '${index + 1}.',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      '${state.entries[index]['name']}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.play(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${state.entries[index]['score']}',
+                                    style: GoogleFonts.play(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                      ],
                     ),
                   ),
+                ],
+              ),
+            ),
+            actionsAlignment: MainAxisAlignment.spaceBetween,
+            actions: [
+              OutlinedButton.icon(
+                onPressed: () => _shareScore(finalScore),
+                icon: const Icon(Icons.share, size: 18),
+                label: const Text('SHARE'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white70),
                 ),
-              )
+              ),
+              ElevatedButton.icon(
+                onPressed: resetGame,
+                icon: const Icon(Icons.replay, size: 18),
+                label: const Text('PLAY AGAIN'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.brown.shade800,
+                ),
+              ),
             ],
-          );
-        });
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _shareScore(int finalScore) async {
+    final playerName = _playerName ?? 'Player';
+    final shareText =
+        '$playerName scored $finalScore in Flappy Bird! Can you beat my score?';
+    final whatsappUrl = Uri.https('wa.me', '/', {'text': shareText});
+    try {
+      final launched = await launchUrl(
+        whatsappUrl,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open WhatsApp to share.')),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open WhatsApp to share.')),
+      );
+    }
   }
 
   void startGame() {
@@ -378,7 +513,7 @@ class _GamePageState extends State<GamePage> {
     gamehasstartted = true;
     setState(() {});
     _gameTimer?.cancel();
-    _gameTimer = Timer.periodic(const Duration(milliseconds: 60), (timer) {
+    _gameTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
@@ -386,10 +521,12 @@ class _GamePageState extends State<GamePage> {
 
       if (_isDying) {
         if (birdYaxis < 0.88) {
-          _deathVelocity += 0.018;
-          birdYaxis = (birdYaxis + _deathVelocity).clamp(-1.0, 0.88);
-          _birdRotation = (_birdRotation + 0.14).clamp(0.0, 1.35);
-        } else if (++_deathRestTicks >= 5) {
+          _deathVelocity += 0.018 * _simulationStep;
+          birdYaxis =
+              (birdYaxis + _deathVelocity * _simulationStep).clamp(-1.0, 0.88);
+          _birdRotation =
+              (_birdRotation + 0.14 * _simulationStep).clamp(0.0, 1.35);
+        } else if (++_deathRestTicks >= 10) {
           birdYaxis = 0.88;
           setState(() {});
           _finishDying(timer);
@@ -399,7 +536,7 @@ class _GamePageState extends State<GamePage> {
         return;
       }
 
-      time = time + 0.05;
+      time = time + 0.05 * _simulationStep;
       height = -4.9 * time * time + 2.8 * time;
       birdYaxis = initialheight - height;
 
@@ -408,18 +545,18 @@ class _GamePageState extends State<GamePage> {
         _firstTreeSize = _random.nextInt(TreeObstacle.heightFactors.length);
         _firstTreeVariant = _random.nextInt(TreeObstacle.variantCount);
       } else {
-        treeXone -= _worldScrollSpeed;
+        treeXone -= _worldScrollSpeed * _simulationStep;
       }
       if (treeXtwo < -2) {
         treeXtwo += 6;
         _secondTreeSize = _random.nextInt(TreeObstacle.heightFactors.length);
         _secondTreeVariant = _random.nextInt(TreeObstacle.variantCount);
       } else {
-        treeXtwo -= _worldScrollSpeed;
+        treeXtwo -= _worldScrollSpeed * _simulationStep;
       }
 
       for (final cloud in _clouds) {
-        cloud.alignmentX -= 0.008;
+        cloud.alignmentX -= 0.008 * _simulationStep;
         if (cloud.alignmentX < -1.4) {
           final replacement = _randomCloud(1.35 + _random.nextDouble() * 0.2);
           cloud
@@ -429,9 +566,9 @@ class _GamePageState extends State<GamePage> {
         }
       }
 
-      _lawnOffset = (_lawnOffset + _worldScrollSpeed / 2) % 1;
+      _lawnOffset = (_lawnOffset + _worldScrollSpeed / 2 * _simulationStep) % 1;
       for (final prop in _groundProps) {
-        prop.alignmentX -= _worldScrollSpeed;
+        prop.alignmentX -= _worldScrollSpeed * _simulationStep;
         if (prop.alignmentX < -1.2) {
           final replacement = _randomGroundProp(
             1.08 + _random.nextDouble() * 0.12,
@@ -464,10 +601,10 @@ class _GamePageState extends State<GamePage> {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () async {
-        if (_isDying) return;
+        if (_isDying || _isGameOver) return;
         if (_playerName == null && !await _ensurePlayerName()) return;
         if (!mounted) return;
-        player.play(AssetSource('sounds/flap.mp3'));
+        unawaited(_playSound(_flapSoundPool));
         setState(() {
           score++;
           if (score > highscore) highscore = score;
@@ -554,7 +691,7 @@ class _GamePageState extends State<GamePage> {
                                 child: Bird(size: _birdSize, dying: _isDying),
                               ),
                             ),
-                            if (!gamehasstartted)
+                            if (!gamehasstartted && !_isGameOver)
                               Align(
                                 alignment: const Alignment(0, -0.26),
                                 child: Padding(
@@ -702,6 +839,81 @@ class _GroundPropState {
     required this.sizeFactor,
     required this.assetName,
   });
+}
+
+class _LeaderboardState {
+  final bool loading;
+  final List<Map<String, dynamic>> entries;
+  final String? error;
+
+  const _LeaderboardState({
+    this.loading = false,
+    this.entries = const [],
+    this.error,
+  });
+}
+
+class _LeaderboardLoading extends StatefulWidget {
+  const _LeaderboardLoading();
+
+  @override
+  State<_LeaderboardLoading> createState() => _LeaderboardLoadingState();
+}
+
+class _LeaderboardLoadingState extends State<_LeaderboardLoading>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 112,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) => Transform.scale(
+              scale: 0.9 + _controller.value * 0.2,
+              child: child,
+            ),
+            child: const Icon(
+              Icons.emoji_events,
+              color: Color(0xFFFFD166),
+              size: 30,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Please wait, fetching leaderboard...',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.play(
+              fontSize: 12,
+              color: Colors.white70,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ScoreDisplay extends StatelessWidget {
