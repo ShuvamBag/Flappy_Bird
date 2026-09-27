@@ -232,10 +232,21 @@ class _GamePageState extends State<GamePage> {
           onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.grey[800],
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(5),
+              ),
+            ),
             onPressed: () =>
                 Navigator.pop(dialogContext, _nameController.text.trim()),
-            child: const Text('PLAY'),
+            child: Text(
+              'PLAY',
+              style: GoogleFonts.play(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
