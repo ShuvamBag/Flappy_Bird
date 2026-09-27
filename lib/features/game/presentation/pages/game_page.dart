@@ -39,8 +39,8 @@ class _GamePageState extends State<GamePage> {
 
   final AudioPlayer _flapPlayer = AudioPlayer();
   late final Future<bool> _flapPlayerReady;
-  StreamSubscription<void>? _flapCompleteSubscription;
-  late final Future<AudioPool> _gameOverSoundPool;
+  Future<void> _audioCommandQueue = Future<void>.value();
+  bool _gameOverSourceSelected = false;
   final math.Random _random = math.Random();
   final List<_CloudState> _clouds = [];
   final List<_GroundPropState> _groundProps = [];
@@ -70,7 +70,6 @@ class _GamePageState extends State<GamePage> {
   double _treeWidth = 60;
   Timer? _gameTimer;
   bool _isDying = false;
-  bool _flapSoundIsPlaying = false;
   double _deathVelocity = 0;
   double _birdRotation = 0;
   int _deathRestTicks = 0;
@@ -86,14 +85,6 @@ class _GamePageState extends State<GamePage> {
     super.initState();
     // Keep one preloaded flap player so quick taps cannot stack audio players.
     _flapPlayerReady = _prepareFlapPlayer();
-    _flapCompleteSubscription = _flapPlayer.onPlayerComplete.listen((_) {
-      _flapSoundIsPlaying = false;
-    });
-    _gameOverSoundPool = AudioPool.createFromAsset(
-      path: 'sounds/negative_beeps-6008.mp3',
-      minPlayers: 1,
-      maxPlayers: 1,
-    );
     _randomizeTrees();
     _resetClouds();
     _resetGroundProps();
@@ -110,29 +101,38 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
-  Future<void> _playFlapSound() async {
-    if (_flapSoundIsPlaying) return;
-    _flapSoundIsPlaying = true;
-    try {
-      if (!await _flapPlayerReady) {
-        _flapSoundIsPlaying = false;
-        return;
+  Future<void> _playFlapSound() {
+    return _enqueueAudioCommand(() async {
+      if (_gameOverSourceSelected) {
+        await _flapPlayer.setSource(AssetSource('sounds/flap.mp3'));
+        _gameOverSourceSelected = false;
       }
-      await _flapPlayer.seek(Duration.zero);
+      // Dispatch the seek without waiting for Safari's seek-complete event.
+      // Reusing this player avoids creating an AudioContext on every tap.
+      unawaited(_flapPlayer.seek(Duration.zero).catchError((Object _) {}));
       await _flapPlayer.resume();
-    } catch (_) {
-      _flapSoundIsPlaying = false;
-    }
+    });
   }
 
   Future<void> _playGameOverSound() async {
-    try {
+    await _enqueueAudioCommand(() async {
       await _flapPlayer.stop();
-      _flapSoundIsPlaying = false;
-      await (await _gameOverSoundPool).start();
-    } catch (_) {
-      // Audio is optional; a browser may block playback.
-    }
+      await _flapPlayer.setSource(
+        AssetSource('sounds/negative_beeps-6008.mp3'),
+      );
+      _gameOverSourceSelected = true;
+      await _flapPlayer.resume();
+    });
+  }
+
+  Future<void> _enqueueAudioCommand(Future<void> Function() command) {
+    _audioCommandQueue = _audioCommandQueue.then((_) async {
+      if (!await _flapPlayerReady) return;
+      await command();
+    }).catchError((Object _) {
+      // Audio is optional; ignore platform errors and keep later taps working.
+    });
+    return _audioCommandQueue;
   }
 
   void _randomizeTrees() {
@@ -388,18 +388,8 @@ class _GamePageState extends State<GamePage> {
   void dispose() {
     _gameTimer?.cancel();
     _nameController.dispose();
-    unawaited(_flapCompleteSubscription?.cancel());
     unawaited(_flapPlayer.dispose());
-    unawaited(_disposeSoundPool(_gameOverSoundPool));
     super.dispose();
-  }
-
-  Future<void> _disposeSoundPool(Future<AudioPool> pool) async {
-    try {
-      await (await pool).dispose();
-    } catch (_) {
-      // The pool may not have initialized if the browser failed to load audio.
-    }
   }
 
   Future<void> showdialog(
