@@ -39,7 +39,7 @@ class _GamePageState extends State<GamePage> {
 
   final AudioPlayer _flapPlayer = AudioPlayer();
   late final Future<bool> _flapPlayerReady;
-  Future<void> _audioCommandQueue = Future<void>.value();
+  Future<void>? _flapSourceRestore;
   bool _gameOverSourceSelected = false;
   final math.Random _random = math.Random();
   final List<_CloudState> _clouds = [];
@@ -101,40 +101,46 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
-  Future<void> _playFlapSound() {
-    return _enqueueAudioCommand(() async {
-      if (_gameOverSourceSelected) {
-        await _flapPlayer.setSource(AssetSource('sounds/flap.mp3'));
-        _gameOverSourceSelected = false;
-      }
-      // A completed clip is already reset to zero by ReleaseMode.stop. Only
-      // seek when a rapid tap interrupts a clip that is still playing.
-      if (_flapPlayer.state == PlayerState.playing) {
-        await _flapPlayer.seek(Duration.zero);
-      }
-      await _flapPlayer.resume();
-    });
+  void _playFlapSound() {
+    var restore = _flapSourceRestore;
+    if (restore == null && _gameOverSourceSelected) {
+      restore = _restoreFlapSource();
+      _flapSourceRestore = restore;
+    }
+    if (restore != null) {
+      unawaited(
+        restore.then((_) {
+          if (identical(_flapSourceRestore, restore)) {
+            _flapSourceRestore = null;
+          }
+          return _flapPlayer.resume();
+        }).catchError((Object _) {}),
+      );
+      return;
+    }
+
+    // Invoke playback in the tap handler's call stack for Safari and mobile
+    // browsers, which require a user gesture to start audio.
+    unawaited(_flapPlayer.resume().catchError((Object _) {}));
   }
 
   Future<void> _playGameOverSound() async {
-    await _enqueueAudioCommand(() async {
+    try {
+      if (!await _flapPlayerReady) return;
       await _flapPlayer.stop();
       await _flapPlayer.setSource(
         AssetSource('sounds/negative_beeps-6008.mp3'),
       );
       _gameOverSourceSelected = true;
       await _flapPlayer.resume();
-    });
+    } catch (_) {
+      // Audio is optional; ignore platform errors and keep later taps working.
+    }
   }
 
-  Future<void> _enqueueAudioCommand(Future<void> Function() command) {
-    _audioCommandQueue = _audioCommandQueue.then((_) async {
-      if (!await _flapPlayerReady) return;
-      await command();
-    }).catchError((Object _) {
-      // Audio is optional; ignore platform errors and keep later taps working.
-    });
-    return _audioCommandQueue;
+  Future<void> _restoreFlapSource() async {
+    await _flapPlayer.setSource(AssetSource('sounds/flap.mp3'));
+    _gameOverSourceSelected = false;
   }
 
   void _randomizeTrees() {
@@ -206,6 +212,24 @@ class _GamePageState extends State<GamePage> {
   void resetGame() {
     Navigator.pop(context);
     _gameTimer?.cancel();
+    if (_gameOverSourceSelected) {
+      final restore = _restoreFlapSource();
+      _flapSourceRestore = restore;
+      unawaited(
+        restore.then<void>(
+          (_) {
+            if (identical(_flapSourceRestore, restore)) {
+              _flapSourceRestore = null;
+            }
+          },
+          onError: (Object _, StackTrace __) {
+            if (identical(_flapSourceRestore, restore)) {
+              _flapSourceRestore = null;
+            }
+          },
+        ),
+      );
+    }
     setState(() {
       birdYaxis = 0;
       _isDying = false;
@@ -681,7 +705,7 @@ class _GamePageState extends State<GamePage> {
         if (_isDying || _isGameOver) return;
         if (_playerName == null && !await _ensurePlayerName()) return;
         if (!mounted) return;
-        unawaited(_playFlapSound());
+        _playFlapSound();
         setState(() {
           score++;
           if (score > highscore) highscore = score;
