@@ -10,10 +10,7 @@ Available for ANDROID , IOS , WEB .....
 
 ## Online Leaderboard Setup
 
-The online leaderboard uses Firebase Realtime Database and anonymous Firebase Authentication. The existing Firebase web app is configured in `lib/firebase_options.dart`; web runs and builds need no extra key arguments. Anonymous sign-in is enabled, and `database.rules.json` is deployed to the configured project. The rules require sign-in and only allow a player's existing score to increase.
 
-The checked-in `.firebaserc` selects the leaderboard project. From this project directory, deploy future rule changes with `firebase deploy --only database`. Android and iOS app registrations have not been added to the Firebase project yet; register those apps and supply their app IDs before using the online leaderboard in native builds.
-## Getting Started
 
 This project is a starting point for a Flutter application.
 
