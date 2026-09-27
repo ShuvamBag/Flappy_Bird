@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 
 /// Occasional, lightweight gusts that drift across the sky behind the scenery.
 class WindAnimation extends StatefulWidget {
-  const WindAnimation({super.key});
+  final VoidCallback? onGustComplete;
+
+  const WindAnimation({super.key, this.onGustComplete});
 
   @override
   State<WindAnimation> createState() => _WindAnimationState();
@@ -35,7 +37,11 @@ class _WindAnimationState extends State<WindAnimation>
       () {
         if (!mounted) return;
         setState(() => _seed = _random.nextInt(1 << 30));
-        _controller.forward(from: 0).whenComplete(_scheduleGust);
+        _controller.forward(from: 0).whenComplete(() {
+          if (!mounted) return;
+          widget.onGustComplete?.call();
+          _scheduleGust();
+        });
       },
     );
   }
