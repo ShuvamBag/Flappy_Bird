@@ -525,7 +525,7 @@ class _GamePageState extends State<GamePage> {
     final playerName = _playerName ?? 'Player';
     final shareText =
         '$playerName scored $finalScore in Flappy Bird! Can you beat my score? '
-        'Play here: https://flappybirdsb.netlify.app/';
+        'Play here: https://fbirdsb.netlify.app/';
     final whatsappUrl = Uri.https('wa.me', '/', {'text': shareText});
     try {
       final launched = await launchUrl(
