@@ -37,7 +37,9 @@ class _GamePageState extends State<GamePage> {
     'mushroom_brown.png',
   ];
 
-  late final Future<AudioPool> _flapSoundPool;
+  final AudioPlayer _flapPlayer = AudioPlayer();
+  late final Future<bool> _flapPlayerReady;
+  StreamSubscription<void>? _flapCompleteSubscription;
   late final Future<AudioPool> _gameOverSoundPool;
   final math.Random _random = math.Random();
   final List<_CloudState> _clouds = [];
@@ -68,6 +70,7 @@ class _GamePageState extends State<GamePage> {
   double _treeWidth = 60;
   Timer? _gameTimer;
   bool _isDying = false;
+  bool _flapSoundIsPlaying = false;
   double _deathVelocity = 0;
   double _birdRotation = 0;
   int _deathRestTicks = 0;
@@ -81,13 +84,11 @@ class _GamePageState extends State<GamePage> {
   @override
   void initState() {
     super.initState();
-    // Prepare the short effects before they are needed. Calling play(AssetSource)
-    // on every tap makes mobile browsers fetch/decode the sound on the hot path.
-    _flapSoundPool = AudioPool.createFromAsset(
-      path: 'sounds/flap.mp3',
-      minPlayers: 1,
-      maxPlayers: 3,
-    );
+    // Keep one preloaded flap player so quick taps cannot stack audio players.
+    _flapPlayerReady = _prepareFlapPlayer();
+    _flapCompleteSubscription = _flapPlayer.onPlayerComplete.listen((_) {
+      _flapSoundIsPlaying = false;
+    });
     _gameOverSoundPool = AudioPool.createFromAsset(
       path: 'sounds/negative_beeps-6008.mp3',
       minPlayers: 1,
@@ -98,11 +99,39 @@ class _GamePageState extends State<GamePage> {
     _resetGroundProps();
   }
 
-  Future<void> _playSound(Future<AudioPool> pool) async {
+  Future<bool> _prepareFlapPlayer() async {
     try {
-      await (await pool).start();
+      await _flapPlayer.setReleaseMode(ReleaseMode.stop);
+      await _flapPlayer.setSource(AssetSource('sounds/flap.mp3'));
+      return true;
     } catch (_) {
-      // Audio is optional; a browser may block playback before user interaction.
+      // Audio is optional; a browser may fail to load the sound asset.
+      return false;
+    }
+  }
+
+  Future<void> _playFlapSound() async {
+    if (_flapSoundIsPlaying) return;
+    _flapSoundIsPlaying = true;
+    try {
+      if (!await _flapPlayerReady) {
+        _flapSoundIsPlaying = false;
+        return;
+      }
+      await _flapPlayer.seek(Duration.zero);
+      await _flapPlayer.resume();
+    } catch (_) {
+      _flapSoundIsPlaying = false;
+    }
+  }
+
+  Future<void> _playGameOverSound() async {
+    try {
+      await _flapPlayer.stop();
+      _flapSoundIsPlaying = false;
+      await (await _gameOverSoundPool).start();
+    } catch (_) {
+      // Audio is optional; a browser may block playback.
     }
   }
 
@@ -326,7 +355,7 @@ class _GamePageState extends State<GamePage> {
     final leaderboard = ValueNotifier<_LeaderboardState>(
       const _LeaderboardState(loading: true),
     );
-    unawaited(_playSound(_gameOverSoundPool));
+    unawaited(_playGameOverSound());
     var dialogIsOpen = true;
     var requestIsComplete = false;
     unawaited(showdialog(finalScore, leaderboard).whenComplete(() {
@@ -359,7 +388,8 @@ class _GamePageState extends State<GamePage> {
   void dispose() {
     _gameTimer?.cancel();
     _nameController.dispose();
-    unawaited(_disposeSoundPool(_flapSoundPool));
+    unawaited(_flapCompleteSubscription?.cancel());
+    unawaited(_flapPlayer.dispose());
     unawaited(_disposeSoundPool(_gameOverSoundPool));
     super.dispose();
   }
@@ -659,7 +689,7 @@ class _GamePageState extends State<GamePage> {
         if (_isDying || _isGameOver) return;
         if (_playerName == null && !await _ensurePlayerName()) return;
         if (!mounted) return;
-        unawaited(_playSound(_flapSoundPool));
+        unawaited(_playFlapSound());
         setState(() {
           score++;
           if (score > highscore) highscore = score;
