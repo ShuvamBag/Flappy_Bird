@@ -7,8 +7,10 @@ import 'package:flutterprojects/features/game/data/firebase_leaderboard.dart';
 import 'package:flutterprojects/features/game/domain/game_collision.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/bird.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/cloud.dart';
+import 'package:flutterprojects/features/game/presentation/widgets/crow.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/lawn.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/tree_obstacle.dart';
+import 'package:flutterprojects/features/game/presentation/widgets/wind_animation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -24,12 +26,23 @@ class _GamePageState extends State<GamePage> {
   static const _worldScrollSpeed = 0.05;
   static const _simulationStep = 0.5;
   static const _playerNameKey = 'player_name';
+  static const _groundAssetCycle = [
+    'rock.png',
+    'bush.png',
+    'plant.png',
+    'mushroom_red.png',
+    'rock.png',
+    'plant_purple.png',
+    'bush.png',
+    'mushroom_brown.png',
+  ];
 
   late final Future<AudioPool> _flapSoundPool;
   late final Future<AudioPool> _gameOverSoundPool;
   final math.Random _random = math.Random();
   final List<_CloudState> _clouds = [];
   final List<_GroundPropState> _groundProps = [];
+  final List<_CrowState> _crows = [];
   final TextEditingController _nameController = TextEditingController();
   String? _playerName;
 
@@ -127,7 +140,7 @@ class _GamePageState extends State<GamePage> {
           8,
           (index) => _randomGroundProp(
             -1.1 + index * 0.32,
-            assetName: index.isEven ? 'rock.png' : 'bush.png',
+            assetName: _groundAssetCycle[index],
           ),
         ),
       );
@@ -139,10 +152,15 @@ class _GamePageState extends State<GamePage> {
   }) {
     return _GroundPropState(
       alignmentX: startX + _random.nextDouble() * 0.2 - 0.1,
-      alignmentY: -0.85 + _random.nextDouble() * 1.7,
-      sizeFactor: assetName == 'bush.png'
-          ? 1.0 + _random.nextDouble() * 0.45
-          : 0.7 + _random.nextDouble() * 0.6,
+      alignmentY: 0.28 + _random.nextDouble() * 0.68,
+      sizeFactor: switch (assetName) {
+        'bush.png' => 1.0 + _random.nextDouble() * 0.45,
+        'mushroom_red.png' ||
+        'mushroom_brown.png' =>
+          0.65 + _random.nextDouble() * 0.3,
+        'plant.png' || 'plant_purple.png' => 0.85 + _random.nextDouble() * 0.35,
+        _ => 0.7 + _random.nextDouble() * 0.6,
+      },
       assetName: assetName,
     );
   }
@@ -172,6 +190,7 @@ class _GamePageState extends State<GamePage> {
       _randomizeTrees();
       _resetClouds();
       _resetGroundProps();
+      _crows.clear();
     });
   }
 
@@ -186,6 +205,23 @@ class _GamePageState extends State<GamePage> {
       treeSize: Size(_treeWidth, treeHeight),
       canopyHeight: treeHeight * 0.34,
     );
+  }
+
+  void _onWindGustComplete() {
+    if (!mounted || !gamehasstartted || _isDying || _isGameOver) return;
+
+    final availableSlots = 3 - _crows.length;
+    if (availableSlots <= 0) return;
+    final count = math.min(availableSlots, 1 + _random.nextInt(2));
+    for (var index = 0; index < count; index++) {
+      _crows.add(
+        _CrowState(
+          alignmentX: -1.25 - index * 0.62,
+          alignmentY: -0.78 + _random.nextDouble() * 1.56,
+          wingPhase: _random.nextDouble() * math.pi * 2,
+        ),
+      );
+    }
   }
 
   void _endGame(Timer timer) {
@@ -488,7 +524,8 @@ class _GamePageState extends State<GamePage> {
   Future<void> _shareScore(int finalScore) async {
     final playerName = _playerName ?? 'Player';
     final shareText =
-        '$playerName scored $finalScore in Flappy Bird! Can you beat my score?';
+        '$playerName scored $finalScore in Flappy Bird! Can you beat my score? '
+        'Play here: https://flappybirdsb.netlify.app/';
     final whatsappUrl = Uri.https('wa.me', '/', {'text': shareText});
     try {
       final launched = await launchUrl(
@@ -581,9 +618,27 @@ class _GamePageState extends State<GamePage> {
         }
       }
 
+      for (final crow in _crows) {
+        crow
+          ..alignmentX += _worldScrollSpeed * _simulationStep
+          ..wingPhase =
+              (crow.wingPhase + 0.25 * _simulationStep) % (math.pi * 2);
+      }
+      _crows.removeWhere((crow) => crow.alignmentX > 1.3);
+
       final hitTree = _hitsTree(treeXone, treeYone, _firstTreeHeight) ||
           _hitsTree(treeXtwo, treeYtwo, _secondTreeHeight);
-      if (hitTree) {
+      final crowSize = Size(_birdSize * 1.25, _birdSize * 0.8);
+      final hitCrow = _crows.any(
+        (crow) => overlapsAtAlignment(
+          playfieldSize: _playfieldSize,
+          firstAlignment: Offset(0, birdYaxis),
+          firstSize: Size.square(_birdSize),
+          secondAlignment: Offset(crow.alignmentX, crow.alignmentY),
+          secondSize: crowSize,
+        ),
+      );
+      if (hitTree || hitCrow) {
         _startDying(timer);
         setState(() {});
         return;
@@ -654,7 +709,25 @@ class _GamePageState extends State<GamePage> {
                           fit: StackFit.expand,
                           clipBehavior: Clip.none,
                           children: [
-                            const ColoredBox(color: Colors.blue),
+                            const DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Color(0xFF5AB8F5),
+                                    Color(0xFF9BD8F7),
+                                    Color(0xFFD8F1FF),
+                                  ],
+                                  stops: [0, 0.62, 1],
+                                ),
+                              ),
+                            ),
+                            Positioned.fill(
+                              child: WindAnimation(
+                                onGustComplete: _onWindGustComplete,
+                              ),
+                            ),
                             ..._clouds.map(
                               (cloud) => Align(
                                 alignment: Alignment(
@@ -689,6 +762,19 @@ class _GamePageState extends State<GamePage> {
                               child: Transform.rotate(
                                 angle: _birdRotation,
                                 child: Bird(size: _birdSize, dying: _isDying),
+                              ),
+                            ),
+                            ..._crows.map(
+                              (crow) => Align(
+                                alignment: Alignment(
+                                  crow.alignmentX,
+                                  crow.alignmentY,
+                                ),
+                                child: Crow(
+                                  width: _birdSize * 1.25,
+                                  height: _birdSize * 0.8,
+                                  wingPhase: crow.wingPhase,
+                                ),
                               ),
                             ),
                             if (!gamehasstartted && !_isGameOver)
@@ -737,10 +823,43 @@ class _GamePageState extends State<GamePage> {
                           fit: StackFit.expand,
                           clipBehavior: Clip.none,
                           children: [
-                            const ColoredBox(color: Color(0xFF49B83F)),
-                            Positioned.fill(
+                            const DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Color(0xFF8CCF55),
+                                    Color(0xFF55B844),
+                                    Color(0xFF347F3E),
+                                  ],
+                                  stops: [0, 0.56, 1],
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              height: terrainHeight * 0.82,
                               child: CustomPaint(
                                 painter: LawnPainter(offset: _lawnOffset),
+                              ),
+                            ),
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: math.min(58.0, terrainHeight * 0.34),
+                              child: const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  image: DecorationImage(
+                                    image: AssetImage(
+                                      'assets/images/nature/grass_tile.png',
+                                    ),
+                                    repeat: ImageRepeat.repeat,
+                                  ),
+                                ),
                               ),
                             ),
                             Positioned(
@@ -759,7 +878,14 @@ class _GamePageState extends State<GamePage> {
                             ),
                             ..._groundProps.asMap().entries.map((entry) {
                               final prop = entry.value;
-                              final isBush = prop.assetName == 'bush.png';
+                              final sizeMultiplier = switch (prop.assetName) {
+                                'bush.png' => 1.25,
+                                'mushroom_red.png' ||
+                                'mushroom_brown.png' =>
+                                  0.62,
+                                'rock.png' => 0.75,
+                                _ => 0.9,
+                              };
                               return Align(
                                 key: ValueKey(
                                   'ground-prop-${entry.key}-${prop.assetName}',
@@ -772,7 +898,7 @@ class _GamePageState extends State<GamePage> {
                                   'assets/images/nature/${prop.assetName}',
                                   width: propBaseSize *
                                       prop.sizeFactor *
-                                      (isBush ? 1.25 : 0.75),
+                                      sizeMultiplier,
                                   fit: BoxFit.contain,
                                   excludeFromSemantics: true,
                                 ),
@@ -838,6 +964,18 @@ class _GroundPropState {
     required this.alignmentY,
     required this.sizeFactor,
     required this.assetName,
+  });
+}
+
+class _CrowState {
+  double alignmentX;
+  final double alignmentY;
+  double wingPhase;
+
+  _CrowState({
+    required this.alignmentX,
+    required this.alignmentY,
+    required this.wingPhase,
   });
 }
 
