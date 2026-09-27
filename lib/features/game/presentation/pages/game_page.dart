@@ -9,6 +9,7 @@ import 'package:flutterprojects/features/game/presentation/widgets/bird.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/cloud.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/lawn.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/tree_obstacle.dart';
+import 'package:flutterprojects/features/game/presentation/widgets/wind_animation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -655,6 +656,7 @@ class _GamePageState extends State<GamePage> {
                           clipBehavior: Clip.none,
                           children: [
                             const ColoredBox(color: Colors.blue),
+                            const Positioned.fill(child: WindAnimation()),
                             ..._clouds.map(
                               (cloud) => Align(
                                 alignment: Alignment(
