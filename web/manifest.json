@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#21B9E8",
     "theme_color": "#21B9E8",
-    "description": "A Flappy Bird game.",
+    "description": "Play Flappy Bird SB online for free. Fly past trees and crows, beat your high score, and share it with friends.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
