@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutterprojects/features/game/data/firebase_leaderboard.dart';
+import 'package:flutterprojects/features/game/data/game_audio.dart';
 import 'package:flutterprojects/features/game/domain/game_collision.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/bird.dart';
 import 'package:flutterprojects/features/game/presentation/widgets/cloud.dart';
@@ -37,10 +37,8 @@ class _GamePageState extends State<GamePage> {
     'mushroom_brown.png',
   ];
 
-  final AudioPlayer _flapPlayer = AudioPlayer();
-  late final Future<bool> _flapPlayerReady;
-  Future<void>? _flapSourceRestore;
-  bool _gameOverSourceSelected = false;
+  final GameAudio _gameAudio = GameAudio();
+  bool _audioPrepared = false;
   final math.Random _random = math.Random();
   final List<_CloudState> _clouds = [];
   final List<_GroundPropState> _groundProps = [];
@@ -83,64 +81,15 @@ class _GamePageState extends State<GamePage> {
   @override
   void initState() {
     super.initState();
-    // Keep one preloaded flap player so quick taps cannot stack audio players.
-    _flapPlayerReady = _prepareFlapPlayer();
+    unawaited(
+      Future<void>.microtask(() {
+        if (!mounted) return;
+        setState(() => _audioPrepared = true);
+      }),
+    );
     _randomizeTrees();
     _resetClouds();
     _resetGroundProps();
-  }
-
-  Future<bool> _prepareFlapPlayer() async {
-    try {
-      await _flapPlayer.setReleaseMode(ReleaseMode.stop);
-      await _flapPlayer.setSource(AssetSource('sounds/flap.mp3'));
-      return true;
-    } catch (_) {
-      // Audio is optional; a browser may fail to load the sound asset.
-      return false;
-    }
-  }
-
-  void _playFlapSound() {
-    var restore = _flapSourceRestore;
-    if (restore == null && _gameOverSourceSelected) {
-      restore = _restoreFlapSource();
-      _flapSourceRestore = restore;
-    }
-    if (restore != null) {
-      unawaited(
-        restore.then((_) {
-          if (identical(_flapSourceRestore, restore)) {
-            _flapSourceRestore = null;
-          }
-          return _flapPlayer.resume();
-        }).catchError((Object _) {}),
-      );
-      return;
-    }
-
-    // Invoke playback in the tap handler's call stack for Safari and mobile
-    // browsers, which require a user gesture to start audio.
-    unawaited(_flapPlayer.resume().catchError((Object _) {}));
-  }
-
-  Future<void> _playGameOverSound() async {
-    try {
-      if (!await _flapPlayerReady) return;
-      await _flapPlayer.stop();
-      await _flapPlayer.setSource(
-        AssetSource('sounds/negative_beeps-6008.mp3'),
-      );
-      _gameOverSourceSelected = true;
-      await _flapPlayer.resume();
-    } catch (_) {
-      // Audio is optional; ignore platform errors and keep later taps working.
-    }
-  }
-
-  Future<void> _restoreFlapSource() async {
-    await _flapPlayer.setSource(AssetSource('sounds/flap.mp3'));
-    _gameOverSourceSelected = false;
   }
 
   void _randomizeTrees() {
@@ -212,24 +161,6 @@ class _GamePageState extends State<GamePage> {
   void resetGame() {
     Navigator.pop(context);
     _gameTimer?.cancel();
-    if (_gameOverSourceSelected) {
-      final restore = _restoreFlapSource();
-      _flapSourceRestore = restore;
-      unawaited(
-        restore.then<void>(
-          (_) {
-            if (identical(_flapSourceRestore, restore)) {
-              _flapSourceRestore = null;
-            }
-          },
-          onError: (Object _, StackTrace __) {
-            if (identical(_flapSourceRestore, restore)) {
-              _flapSourceRestore = null;
-            }
-          },
-        ),
-      );
-    }
     setState(() {
       birdYaxis = 0;
       _isDying = false;
@@ -381,7 +312,7 @@ class _GamePageState extends State<GamePage> {
     final leaderboard = ValueNotifier<_LeaderboardState>(
       const _LeaderboardState(loading: true),
     );
-    unawaited(_playGameOverSound());
+    _gameAudio.playGameOver();
     var dialogIsOpen = true;
     var requestIsComplete = false;
     unawaited(showdialog(finalScore, leaderboard).whenComplete(() {
@@ -414,7 +345,7 @@ class _GamePageState extends State<GamePage> {
   void dispose() {
     _gameTimer?.cancel();
     _nameController.dispose();
-    unawaited(_flapPlayer.dispose());
+    unawaited(_gameAudio.dispose());
     super.dispose();
   }
 
@@ -702,10 +633,12 @@ class _GamePageState extends State<GamePage> {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () async {
+        if (!_audioPrepared) return;
         if (_isDying || _isGameOver) return;
+        // Start playback in the tap's synchronous call stack for Safari.
+        _gameAudio.playTap();
         if (_playerName == null && !await _ensurePlayerName()) return;
         if (!mounted) return;
-        _playFlapSound();
         setState(() {
           score++;
           if (score > highscore) highscore = score;
@@ -833,7 +766,9 @@ class _GamePageState extends State<GamePage> {
                                   child: FittedBox(
                                     fit: BoxFit.scaleDown,
                                     child: Text(
-                                      'T A P  T O  P L A Y !',
+                                      _audioPrepared
+                                          ? 'T A P  T O  P L A Y !'
+                                          : 'L O A D I N G  S O U N D ...',
                                       style: GoogleFonts.play(
                                         fontSize: promptFontSize,
                                         color: Colors.grey[800],
