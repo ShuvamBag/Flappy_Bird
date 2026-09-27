@@ -107,9 +107,11 @@ class _GamePageState extends State<GamePage> {
         await _flapPlayer.setSource(AssetSource('sounds/flap.mp3'));
         _gameOverSourceSelected = false;
       }
-      // Dispatch the seek without waiting for Safari's seek-complete event.
-      // Reusing this player avoids creating an AudioContext on every tap.
-      unawaited(_flapPlayer.seek(Duration.zero).catchError((Object _) {}));
+      // A completed clip is already reset to zero by ReleaseMode.stop. Only
+      // seek when a rapid tap interrupts a clip that is still playing.
+      if (_flapPlayer.state == PlayerState.playing) {
+        await _flapPlayer.seek(Duration.zero);
+      }
       await _flapPlayer.resume();
     });
   }
