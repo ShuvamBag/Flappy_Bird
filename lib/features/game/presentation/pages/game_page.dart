@@ -186,7 +186,10 @@ class _GamePageState extends State<GamePage> {
     return overlapsTreeAtAlignment(
       playfieldSize: _playfieldSize,
       birdAlignment: Offset(0, birdYaxis),
-      birdSize: Size.square(_birdSize),
+      // The animated bird artwork has transparent padding around its body.
+      // Keep the collision box inside the sprite so contact follows the
+      // visible bird more closely.
+      birdSize: Size(_birdSize * 0.82, _birdSize * 0.76),
       treeAlignment: Offset(treeX, treeY),
       treeSize: Size(_treeWidth, treeHeight),
       canopyHeight: treeHeight * 0.34,
@@ -610,9 +613,9 @@ class _GamePageState extends State<GamePage> {
         (crow) => overlapsAtAlignment(
           playfieldSize: _playfieldSize,
           firstAlignment: Offset(0, birdYaxis),
-          firstSize: Size.square(_birdSize),
+          firstSize: Size(_birdSize * 0.82, _birdSize * 0.76),
           secondAlignment: Offset(crow.alignmentX, crow.alignmentY),
-          secondSize: crowSize,
+          secondSize: Size(crowSize.width * 0.96, crowSize.height * 0.88),
         ),
       );
       if (hitTree || hitCrow) {
@@ -620,7 +623,12 @@ class _GamePageState extends State<GamePage> {
         setState(() {});
         return;
       }
-      if (birdYaxis < -1 || birdYaxis > 1) {
+      // Alignment -1 puts the bird's top edge at the playfield edge. Let it
+      // pass 60% of its height above the screen before ending the game.
+      final topDeathAlignment = _playfieldSize.height <= 0
+          ? -1.0
+          : -1 - (_birdSize * 0.2 / _playfieldSize.height);
+      if (birdYaxis < topDeathAlignment || birdYaxis > 1) {
         _endGame(timer);
         return;
       }
@@ -650,272 +658,303 @@ class _GamePageState extends State<GamePage> {
         }
       },
       child: Scaffold(
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isCompact =
-                  constraints.maxHeight < 520 || constraints.maxWidth < 360;
-              final labelFontSize =
-                  (constraints.maxWidth * 0.07).clamp(15.0, 30.0).toDouble();
-              final scoreFontSize =
-                  (constraints.maxWidth * 0.05).clamp(14.0, 22.0).toDouble();
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isCompact =
+                      constraints.maxHeight < 520 || constraints.maxWidth < 360;
+                  final labelFontSize = (constraints.maxWidth * 0.07)
+                      .clamp(15.0, 30.0)
+                      .toDouble();
+                  final scoreFontSize = (constraints.maxWidth * 0.05)
+                      .clamp(14.0, 22.0)
+                      .toDouble();
 
-              return Column(
-                children: [
-                  Expanded(
-                    flex: isCompact ? 5 : 4,
-                    child: LayoutBuilder(
-                      builder: (context, fieldConstraints) {
-                        _playfieldSize = Size(
-                          fieldConstraints.maxWidth,
-                          fieldConstraints.maxHeight,
-                        );
-                        final shortestSide = math.min(
-                          fieldConstraints.maxWidth,
-                          fieldConstraints.maxHeight,
-                        );
-                        _birdSize =
-                            (shortestSide * 0.16).clamp(40.0, 76.0).toDouble();
-                        _treeWidth = (fieldConstraints.maxWidth * 0.17)
-                            .clamp(52.0, 92.0)
-                            .toDouble();
-                        final promptFontSize =
-                            (fieldConstraints.maxWidth * 0.075)
-                                .clamp(16.0, 30.0)
+                  return Column(
+                    children: [
+                      Expanded(
+                        flex: isCompact ? 5 : 4,
+                        child: LayoutBuilder(
+                          builder: (context, fieldConstraints) {
+                            _playfieldSize = Size(
+                              fieldConstraints.maxWidth,
+                              fieldConstraints.maxHeight,
+                            );
+                            final shortestSide = math.min(
+                              fieldConstraints.maxWidth,
+                              fieldConstraints.maxHeight,
+                            );
+                            _birdSize = (shortestSide * 0.16)
+                                .clamp(40.0, 76.0)
+                                .toDouble();
+                            _treeWidth = (fieldConstraints.maxWidth * 0.17)
+                                .clamp(52.0, 92.0)
+                                .toDouble();
+                            final promptFontSize =
+                                (fieldConstraints.maxWidth * 0.075)
+                                    .clamp(16.0, 30.0)
+                                    .toDouble();
+
+                            return Stack(
+                              fit: StackFit.expand,
+                              clipBehavior: Clip.none,
+                              children: [
+                                const DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0xFF5AB8F5),
+                                        Color(0xFF9BD8F7),
+                                        Color(0xFFD8F1FF),
+                                      ],
+                                      stops: [0, 0.62, 1],
+                                    ),
+                                  ),
+                                ),
+                                Positioned.fill(
+                                  child: WindAnimation(
+                                    onGustComplete: _onWindGustComplete,
+                                  ),
+                                ),
+                                ..._clouds.map(
+                                  (cloud) => Align(
+                                    alignment: Alignment(
+                                      cloud.alignmentX,
+                                      cloud.alignmentY,
+                                    ),
+                                    child: Cloud(
+                                      size: (shortestSide * cloud.sizeFactor)
+                                          .clamp(40.0, 112.0)
+                                          .toDouble(),
+                                    ),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: Alignment(treeXone, treeYone),
+                                  child: TreeObstacle(
+                                    width: _treeWidth,
+                                    height: _firstTreeHeight,
+                                    variant: _firstTreeVariant,
+                                  ),
+                                ),
+                                Align(
+                                  alignment: Alignment(treeXtwo, treeYtwo),
+                                  child: TreeObstacle(
+                                    width: _treeWidth,
+                                    height: _secondTreeHeight,
+                                    variant: _secondTreeVariant,
+                                  ),
+                                ),
+                                Align(
+                                  alignment: Alignment(0, birdYaxis),
+                                  child: Transform.rotate(
+                                    angle: _birdRotation,
+                                    child:
+                                        Bird(size: _birdSize, dying: _isDying),
+                                  ),
+                                ),
+                                ..._crows.map(
+                                  (crow) => Align(
+                                    alignment: Alignment(
+                                      crow.alignmentX,
+                                      crow.alignmentY,
+                                    ),
+                                    child: Crow(
+                                      width: _birdSize * 1.25,
+                                      height: _birdSize * 0.8,
+                                      wingPhase: crow.wingPhase,
+                                    ),
+                                  ),
+                                ),
+                                if (!gamehasstartted && !_isGameOver)
+                                  Align(
+                                    alignment: const Alignment(0, -0.26),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          _audioPrepared
+                                              ? 'T A P  T O  P L A Y !'
+                                              : 'L O A D I N G  S O U N D ...',
+                                          style: GoogleFonts.play(
+                                            fontSize: promptFontSize,
+                                            color: Colors.grey[800],
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                      Expanded(
+                        flex: isCompact ? 2 : 3,
+                        child: LayoutBuilder(
+                          builder: (context, terrainConstraints) {
+                            final terrainWidth = terrainConstraints.maxWidth;
+                            final terrainHeight = terrainConstraints.maxHeight;
+                            final propBaseSize = (terrainWidth * 0.055)
+                                .clamp(22.0, 70.0)
+                                .toDouble();
+                            final terrainLabelFontSize = math
+                                .min(labelFontSize, terrainHeight * 0.21)
+                                .clamp(12.0, 30.0)
+                                .toDouble();
+                            final terrainScoreFontSize = math
+                                .min(scoreFontSize, terrainHeight * 0.15)
+                                .clamp(12.0, 22.0)
                                 .toDouble();
 
-                        return Stack(
-                          fit: StackFit.expand,
-                          clipBehavior: Clip.none,
-                          children: [
-                            const DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Color(0xFF5AB8F5),
-                                    Color(0xFF9BD8F7),
-                                    Color(0xFFD8F1FF),
-                                  ],
-                                  stops: [0, 0.62, 1],
-                                ),
-                              ),
-                            ),
-                            Positioned.fill(
-                              child: WindAnimation(
-                                onGustComplete: _onWindGustComplete,
-                              ),
-                            ),
-                            ..._clouds.map(
-                              (cloud) => Align(
-                                alignment: Alignment(
-                                  cloud.alignmentX,
-                                  cloud.alignmentY,
-                                ),
-                                child: Cloud(
-                                  size: (shortestSide * cloud.sizeFactor)
-                                      .clamp(40.0, 112.0)
-                                      .toDouble(),
-                                ),
-                              ),
-                            ),
-                            Align(
-                              alignment: Alignment(treeXone, treeYone),
-                              child: TreeObstacle(
-                                width: _treeWidth,
-                                height: _firstTreeHeight,
-                                variant: _firstTreeVariant,
-                              ),
-                            ),
-                            Align(
-                              alignment: Alignment(treeXtwo, treeYtwo),
-                              child: TreeObstacle(
-                                width: _treeWidth,
-                                height: _secondTreeHeight,
-                                variant: _secondTreeVariant,
-                              ),
-                            ),
-                            Align(
-                              alignment: Alignment(0, birdYaxis),
-                              child: Transform.rotate(
-                                angle: _birdRotation,
-                                child: Bird(size: _birdSize, dying: _isDying),
-                              ),
-                            ),
-                            ..._crows.map(
-                              (crow) => Align(
-                                alignment: Alignment(
-                                  crow.alignmentX,
-                                  crow.alignmentY,
-                                ),
-                                child: Crow(
-                                  width: _birdSize * 1.25,
-                                  height: _birdSize * 0.8,
-                                  wingPhase: crow.wingPhase,
-                                ),
-                              ),
-                            ),
-                            if (!gamehasstartted && !_isGameOver)
-                              Align(
-                                alignment: const Alignment(0, -0.26),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
+                            return Stack(
+                              fit: StackFit.expand,
+                              clipBehavior: Clip.none,
+                              children: [
+                                const DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0xFF8CCF55),
+                                        Color(0xFF55B844),
+                                        Color(0xFF347F3E),
+                                      ],
+                                      stops: [0, 0.56, 1],
+                                    ),
                                   ),
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: Text(
-                                      _audioPrepared
-                                          ? 'T A P  T O  P L A Y !'
-                                          : 'L O A D I N G  S O U N D ...',
-                                      style: GoogleFonts.play(
-                                        fontSize: promptFontSize,
-                                        color: Colors.grey[800],
-                                        fontWeight: FontWeight.bold,
+                                ),
+                                Positioned(
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: terrainHeight * 0.82,
+                                  child: CustomPaint(
+                                    painter: LawnPainter(offset: _lawnOffset),
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  height: math.min(58.0, terrainHeight * 0.34),
+                                  child: const DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      image: DecorationImage(
+                                        image: AssetImage(
+                                          'assets/images/nature/grass_tile.png',
+                                        ),
+                                        repeat: ImageRepeat.repeat,
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                  Expanded(
-                    flex: isCompact ? 2 : 3,
-                    child: LayoutBuilder(
-                      builder: (context, terrainConstraints) {
-                        final terrainWidth = terrainConstraints.maxWidth;
-                        final terrainHeight = terrainConstraints.maxHeight;
-                        final propBaseSize =
-                            (terrainWidth * 0.055).clamp(22.0, 70.0).toDouble();
-                        final terrainLabelFontSize = math
-                            .min(labelFontSize, terrainHeight * 0.21)
-                            .clamp(12.0, 30.0)
-                            .toDouble();
-                        final terrainScoreFontSize = math
-                            .min(scoreFontSize, terrainHeight * 0.15)
-                            .clamp(12.0, 22.0)
-                            .toDouble();
-
-                        return Stack(
-                          fit: StackFit.expand,
-                          clipBehavior: Clip.none,
-                          children: [
-                            const DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Color(0xFF8CCF55),
-                                    Color(0xFF55B844),
-                                    Color(0xFF347F3E),
-                                  ],
-                                  stops: [0, 0.56, 1],
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              height: terrainHeight * 0.82,
-                              child: CustomPaint(
-                                painter: LawnPainter(offset: _lawnOffset),
-                              ),
-                            ),
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              height: math.min(58.0, terrainHeight * 0.34),
-                              child: const DecoratedBox(
-                                decoration: BoxDecoration(
-                                  image: DecorationImage(
-                                    image: AssetImage(
-                                      'assets/images/nature/grass_tile.png',
+                                Positioned(
+                                  key: const ValueKey('grass-fringe'),
+                                  top: -16,
+                                  left: 0,
+                                  right: 0,
+                                  height: 44,
+                                  child: IgnorePointer(
+                                    child: CustomPaint(
+                                      painter: GrassFringePainter(
+                                        offset: _lawnOffset,
+                                      ),
                                     ),
-                                    repeat: ImageRepeat.repeat,
                                   ),
                                 ),
-                              ),
-                            ),
-                            Positioned(
-                              key: const ValueKey('grass-fringe'),
-                              top: -16,
-                              left: 0,
-                              right: 0,
-                              height: 44,
-                              child: IgnorePointer(
-                                child: CustomPaint(
-                                  painter: GrassFringePainter(
-                                    offset: _lawnOffset,
+                                ..._groundProps.asMap().entries.map((entry) {
+                                  final prop = entry.value;
+                                  final sizeMultiplier =
+                                      switch (prop.assetName) {
+                                    'bush.png' => 1.25,
+                                    'mushroom_red.png' ||
+                                    'mushroom_brown.png' =>
+                                      0.62,
+                                    'rock.png' => 0.75,
+                                    _ => 0.9,
+                                  };
+                                  return Align(
+                                    key: ValueKey(
+                                      'ground-prop-${entry.key}-${prop.assetName}',
+                                    ),
+                                    alignment: Alignment(
+                                      prop.alignmentX,
+                                      prop.alignmentY,
+                                    ),
+                                    child: Image.asset(
+                                      'assets/images/nature/${prop.assetName}',
+                                      width: propBaseSize *
+                                          prop.sizeFactor *
+                                          sizeMultiplier,
+                                      fit: BoxFit.contain,
+                                      excludeFromSemantics: true,
+                                    ),
+                                  );
+                                }),
+                                Positioned(
+                                  top: terrainHeight * 0.12,
+                                  left: terrainWidth * 0.27,
+                                  right: terrainWidth * 0.27,
+                                  bottom: terrainHeight * 0.1,
+                                  child: Row(
+                                    children: [
+                                      _ScoreDisplay(
+                                        label: 'SCORE',
+                                        value: score,
+                                        labelFontSize: terrainLabelFontSize,
+                                        scoreFontSize: terrainScoreFontSize,
+                                      ),
+                                      _ScoreDisplay(
+                                        label: 'BEST',
+                                        value: highscore,
+                                        labelFontSize: terrainLabelFontSize,
+                                        scoreFontSize: terrainScoreFontSize,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                            ),
-                            ..._groundProps.asMap().entries.map((entry) {
-                              final prop = entry.value;
-                              final sizeMultiplier = switch (prop.assetName) {
-                                'bush.png' => 1.25,
-                                'mushroom_red.png' ||
-                                'mushroom_brown.png' =>
-                                  0.62,
-                                'rock.png' => 0.75,
-                                _ => 0.9,
-                              };
-                              return Align(
-                                key: ValueKey(
-                                  'ground-prop-${entry.key}-${prop.assetName}',
-                                ),
-                                alignment: Alignment(
-                                  prop.alignmentX,
-                                  prop.alignmentY,
-                                ),
-                                child: Image.asset(
-                                  'assets/images/nature/${prop.assetName}',
-                                  width: propBaseSize *
-                                      prop.sizeFactor *
-                                      sizeMultiplier,
-                                  fit: BoxFit.contain,
-                                  excludeFromSemantics: true,
-                                ),
-                              );
-                            }),
-                            Positioned(
-                              top: terrainHeight * 0.12,
-                              left: terrainWidth * 0.27,
-                              right: terrainWidth * 0.27,
-                              bottom: terrainHeight * 0.1,
-                              child: Row(
-                                children: [
-                                  _ScoreDisplay(
-                                    label: 'SCORE',
-                                    value: score,
-                                    labelFontSize: terrainLabelFontSize,
-                                    scoreFontSize: terrainScoreFontSize,
-                                  ),
-                                  _ScoreDisplay(
-                                    label: 'BEST',
-                                    value: highscore,
-                                    labelFontSize: terrainLabelFontSize,
-                                    scoreFontSize: terrainScoreFontSize,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        );
-                      },
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 4,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0.48,
+                  child: Text(
+                    'Build with love - Shuvam',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      shadows: [
+                        Shadow(color: Colors.black26, blurRadius: 2),
+                      ],
                     ),
                   ),
-                ],
-              );
-            },
-          ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
