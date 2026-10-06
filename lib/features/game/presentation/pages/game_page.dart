@@ -23,6 +23,28 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage> {
+  static const _sceneScoreInterval = 10;
+  static const _sceneSkyPalettes = <List<Color>>[
+    [Color(0xFFFFD7A3), Color(0xFFFFB98C), Color(0xFFFFE3BD)], // Morning
+    [Color(0xFF45B9F3), Color(0xFF91D9F5), Color(0xFFD8F1FF)], // Afternoon
+    [Color(0xFFFFA45C), Color(0xFFE97967), Color(0xFF594C78)], // Sunset
+    [Color(0xFF18223D), Color(0xFF303D60), Color(0xFF68718A)], // Night
+    [Color(0xFF536A7D), Color(0xFF8395A2), Color(0xFFC0C6C3)], // Rainy
+  ];
+  static const _sceneGroundPalettes = <List<Color>>[
+    [Color(0xFF8CCF55), Color(0xFF55B844), Color(0xFF347F3E)],
+    [Color(0xFF8CCF55), Color(0xFF55B844), Color(0xFF347F3E)],
+    [Color(0xFF7FAE4C), Color(0xFF507E48), Color(0xFF354E3E)],
+    [Color(0xFF435344), Color(0xFF303D38), Color(0xFF202A2B)],
+    [Color(0xFF687B65), Color(0xFF4C6252), Color(0xFF34463D)],
+  ];
+  static const _sceneReflectionTints = [
+    Color(0xFFFFD98E),
+    Color(0xFFFFF3C4),
+    Color(0xFFFFA77E),
+    Color(0xFFB7CCFF),
+    Color(0xFFB9E5F5),
+  ];
   static const _worldScrollSpeed = 0.05;
   static const _simulationStep = 0.5;
   static const _playerNameKey = 'player_name';
@@ -48,6 +70,8 @@ class _GamePageState extends State<GamePage> {
 
   double birdYaxis = 0;
   int score = 0;
+  int _sceneIndex = 0;
+  bool _cityBackdrop = false;
   int highscore = 0;
   double time = 0;
   double height = 0;
@@ -63,6 +87,10 @@ class _GamePageState extends State<GamePage> {
   int _firstTreeVariant = 0;
   int _secondTreeVariant = 1;
   double _lawnOffset = 0;
+  final List<_RainDrop> _rainDrops = [];
+  double _rainWind = 0;
+  double _rainWindTarget = 0;
+  int _rainWindChangeIn = 0;
   Size _playfieldSize = Size.zero;
   double _birdSize = 60;
   double _treeWidth = 60;
@@ -70,6 +98,8 @@ class _GamePageState extends State<GamePage> {
   bool _isDying = false;
   double _deathVelocity = 0;
   double _birdRotation = 0;
+  double _somersaultRemaining = 0;
+  double _somersaultVelocity = 0;
   int _deathRestTicks = 0;
 
   double get _firstTreeHeight =>
@@ -77,6 +107,16 @@ class _GamePageState extends State<GamePage> {
 
   double get _secondTreeHeight =>
       _playfieldSize.height * TreeObstacle.heightFactors[_secondTreeSize];
+
+  Offset get _birdHitboxAlignment {
+    if (_playfieldSize.height <= 0) return Offset(0, birdYaxis);
+    final hitboxHeight = _birdSize * Bird.hitboxHeightFactor;
+    final artworkOffset = Bird.visibleCenterOffsetFactor *
+        _birdSize *
+        2 /
+        math.max(1, _playfieldSize.height - hitboxHeight);
+    return Offset(0, birdYaxis - artworkOffset);
+  }
 
   @override
   void initState() {
@@ -90,6 +130,99 @@ class _GamePageState extends State<GamePage> {
     _randomizeTrees();
     _resetClouds();
     _resetGroundProps();
+    _resetRainDrops();
+    _cityBackdrop = _random.nextInt(3) == 0;
+  }
+
+  void _resetRainDrops() {
+    _rainDrops
+      ..clear()
+      ..addAll(List.generate(90, (_) => _randomRainDrop(randomY: true)));
+  }
+
+  _RainDrop _randomRainDrop({bool randomY = false}) => _RainDrop(
+        x: _random.nextDouble(),
+        y: randomY ? _random.nextDouble() : -_random.nextDouble() * 0.08,
+        vx: (_random.nextDouble() - 0.5) * 0.001,
+        vy: 0.0024 + _random.nextDouble() * 0.0035,
+        gravity: 0.000018 + _random.nextDouble() * 0.000035,
+        length: 5 + _random.nextDouble() * 15,
+        opacity: 0.12 + _random.nextDouble() * 0.36,
+        thickness: 0.45 + _random.nextDouble() * 0.8,
+        depth: 0.25 + _random.nextDouble() * 0.75,
+      );
+
+  void _advanceRain() {
+    if (_sceneIndex != 4) return;
+    if (_rainWindChangeIn-- <= 0) {
+      _rainWindTarget = (_random.nextDouble() - 0.5) * 0.0014;
+      _rainWindChangeIn = 28 + _random.nextInt(54);
+    }
+    _rainWind += (_rainWindTarget - _rainWind) * 0.035;
+    for (var index = 0; index < _rainDrops.length; index++) {
+      final drop = _rainDrops[index];
+      drop
+        // Shared slow gusts, per-drop turbulence, and drag vary the paths.
+        ..vx += (_rainWind * drop.depth - drop.vx) * 0.025 +
+            (_random.nextDouble() - 0.5) * 0.000012
+        ..vy += drop.gravity
+        ..x += drop.vx
+        ..y += drop.vy;
+      if (drop.y > 1.04 || drop.x < -0.04 || drop.x > 1.04) {
+        _rainDrops[index] = _randomRainDrop();
+      }
+    }
+  }
+
+  void _advanceScenesBetween(int previousScore, int newScore) {
+    final firstMilestone = previousScore ~/ _sceneScoreInterval + 1;
+    final lastMilestone = newScore ~/ _sceneScoreInterval;
+    for (var milestone = firstMilestone;
+        milestone <= lastMilestone;
+        milestone++) {
+      var nextScene = _random.nextInt(_sceneSkyPalettes.length - 1);
+      if (nextScene >= _sceneIndex) nextScene++;
+      _sceneIndex = nextScene;
+      _cityBackdrop = _random.nextInt(3) == 0;
+    }
+  }
+
+  void _advanceSomersault() {
+    if (_somersaultRemaining <= 0) return;
+    const angularAcceleration = 0.035;
+    const maximumAngularSpeed = 0.48;
+    final brakingSpeed = math.sqrt(
+      2 * angularAcceleration * _somersaultRemaining,
+    );
+    final targetSpeed = math.min(maximumAngularSpeed, brakingSpeed);
+    _somersaultVelocity += (targetSpeed - _somersaultVelocity) * 0.18;
+    final angleStep = math.min(_somersaultRemaining, _somersaultVelocity);
+    _somersaultRemaining -= angleStep;
+    _birdRotation += angleStep;
+    if (_somersaultRemaining < 0.01) {
+      _somersaultRemaining = 0;
+      _somersaultVelocity = 0;
+      _birdRotation = 0;
+    }
+  }
+
+  Future<void> _onRightClick() async {
+    if (!_audioPrepared || _isDying || _isGameOver) return;
+    _gameAudio.playTap();
+    if (_playerName == null && !await _ensurePlayerName()) return;
+    if (!mounted || _isDying || _isGameOver) return;
+    setState(() {
+      final previousScore = score;
+      score += 3;
+      _advanceScenesBetween(previousScore, score);
+      if (score > highscore) highscore = score;
+      _somersaultRemaining += math.pi * 2;
+    });
+    if (gamehasstartted) {
+      jump();
+    } else {
+      startGame();
+    }
   }
 
   void _randomizeTrees() {
@@ -166,6 +299,8 @@ class _GamePageState extends State<GamePage> {
       _isDying = false;
       _deathVelocity = 0;
       _birdRotation = 0;
+      _somersaultRemaining = 0;
+      _somersaultVelocity = 0;
       _deathRestTicks = 0;
       gamehasstartted = false;
       _isGameOver = false;
@@ -176,6 +311,9 @@ class _GamePageState extends State<GamePage> {
       _randomizeTrees();
       _resetClouds();
       _resetGroundProps();
+      _sceneIndex = 0;
+      _cityBackdrop = false;
+      _resetRainDrops();
       _crows.clear();
     });
   }
@@ -185,11 +323,14 @@ class _GamePageState extends State<GamePage> {
 
     return overlapsTreeAtAlignment(
       playfieldSize: _playfieldSize,
-      birdAlignment: Offset(0, birdYaxis),
+      birdAlignment: _birdHitboxAlignment,
       // The animated bird artwork has transparent padding around its body.
       // Keep the collision box inside the sprite so contact follows the
       // visible bird more closely.
-      birdSize: Size(_birdSize * 0.82, _birdSize * 0.76),
+      birdSize: Size(
+        _birdSize * Bird.hitboxWidthFactor,
+        _birdSize * Bird.hitboxHeightFactor,
+      ),
       treeAlignment: Offset(treeX, treeY),
       treeSize: Size(_treeWidth, treeHeight),
       canopyHeight: treeHeight * 0.34,
@@ -536,6 +677,7 @@ class _GamePageState extends State<GamePage> {
         return;
       }
 
+      _advanceRain();
       if (_isDying) {
         if (birdYaxis < 0.88) {
           _deathVelocity += 0.018 * _simulationStep;
@@ -554,6 +696,7 @@ class _GamePageState extends State<GamePage> {
       }
 
       time = time + 0.05 * _simulationStep;
+      _advanceSomersault();
       height = -4.9 * time * time + 2.8 * time;
       birdYaxis = initialheight - height;
 
@@ -612,8 +755,11 @@ class _GamePageState extends State<GamePage> {
       final hitCrow = _crows.any(
         (crow) => overlapsAtAlignment(
           playfieldSize: _playfieldSize,
-          firstAlignment: Offset(0, birdYaxis),
-          firstSize: Size(_birdSize * 0.82, _birdSize * 0.76),
+          firstAlignment: _birdHitboxAlignment,
+          firstSize: Size(
+            _birdSize * Bird.hitboxWidthFactor,
+            _birdSize * Bird.hitboxHeightFactor,
+          ),
           secondAlignment: Offset(crow.alignmentX, crow.alignmentY),
           secondSize: Size(crowSize.width * 0.96, crowSize.height * 0.88),
         ),
@@ -640,6 +786,7 @@ class _GamePageState extends State<GamePage> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      onSecondaryTap: _onRightClick,
       onTap: () async {
         if (!_audioPrepared) return;
         if (_isDying || _isGameOver) return;
@@ -648,7 +795,9 @@ class _GamePageState extends State<GamePage> {
         if (_playerName == null && !await _ensurePlayerName()) return;
         if (!mounted) return;
         setState(() {
+          final previousScore = score;
           score++;
+          _advanceScenesBetween(previousScore, score);
           if (score > highscore) highscore = score;
         });
         if (gamehasstartted) {
@@ -702,17 +851,31 @@ class _GamePageState extends State<GamePage> {
                               fit: StackFit.expand,
                               clipBehavior: Clip.none,
                               children: [
-                                const DecoratedBox(
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 1800),
+                                  curve: Curves.easeInOutCubic,
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topCenter,
                                       end: Alignment.bottomCenter,
-                                      colors: [
-                                        Color(0xFF5AB8F5),
-                                        Color(0xFF9BD8F7),
-                                        Color(0xFFD8F1FF),
-                                      ],
-                                      stops: [0, 0.62, 1],
+                                      colors: _sceneSkyPalettes[_sceneIndex],
+                                      stops: const [0, 0.62, 1],
+                                    ),
+                                  ),
+                                ),
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: AnimatedSwitcher(
+                                      duration:
+                                          const Duration(milliseconds: 1600),
+                                      child: CustomPaint(
+                                        key: ValueKey(
+                                            'distant-scenery-$_sceneIndex-$_cityBackdrop'),
+                                        painter: _SceneryPainter(
+                                          scene: _sceneIndex,
+                                          city: _cityBackdrop,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -754,8 +917,12 @@ class _GamePageState extends State<GamePage> {
                                   alignment: Alignment(0, birdYaxis),
                                   child: Transform.rotate(
                                     angle: _birdRotation,
-                                    child:
-                                        Bird(size: _birdSize, dying: _isDying),
+                                    child: Bird(
+                                      size: _birdSize,
+                                      dying: _isDying,
+                                      reflectionTint:
+                                          _sceneReflectionTints[_sceneIndex],
+                                    ),
                                   ),
                                 ),
                                 ..._crows.map(
@@ -771,6 +938,15 @@ class _GamePageState extends State<GamePage> {
                                     ),
                                   ),
                                 ),
+                                if (_sceneIndex == 4)
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: CustomPaint(
+                                        painter:
+                                            _RainPainter(drops: _rainDrops),
+                                      ),
+                                    ),
+                                  ),
                                 if (!gamehasstartted && !_isGameOver)
                                   Align(
                                     alignment: const Alignment(0, -0.26),
@@ -820,17 +996,15 @@ class _GamePageState extends State<GamePage> {
                               fit: StackFit.expand,
                               clipBehavior: Clip.none,
                               children: [
-                                const DecoratedBox(
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 1800),
+                                  curve: Curves.easeInOutCubic,
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topCenter,
                                       end: Alignment.bottomCenter,
-                                      colors: [
-                                        Color(0xFF8CCF55),
-                                        Color(0xFF55B844),
-                                        Color(0xFF347F3E),
-                                      ],
-                                      stops: [0, 0.56, 1],
+                                      colors: _sceneGroundPalettes[_sceneIndex],
+                                      stops: const [0, 0.56, 1],
                                     ),
                                   ),
                                 ),
@@ -934,7 +1108,7 @@ class _GamePageState extends State<GamePage> {
                 },
               ),
             ),
-            Positioned(
+            const Positioned(
               right: 8,
               bottom: 4,
               child: IgnorePointer(
@@ -942,7 +1116,7 @@ class _GamePageState extends State<GamePage> {
                   opacity: 0.48,
                   child: Text(
                     'Build with love - Shuvam',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
@@ -971,6 +1145,213 @@ class _CloudState {
     required this.alignmentY,
     required this.sizeFactor,
   });
+}
+
+class _RainDrop {
+  double x;
+  double y;
+  double vx;
+  double vy;
+  final double gravity;
+  final double length;
+  final double opacity;
+  final double thickness;
+  final double depth;
+
+  _RainDrop({
+    required this.x,
+    required this.y,
+    required this.vx,
+    required this.vy,
+    required this.gravity,
+    required this.length,
+    required this.opacity,
+    required this.thickness,
+    required this.depth,
+  });
+}
+
+class _RainPainter extends CustomPainter {
+  final List<_RainDrop> drops;
+
+  const _RainPainter({required this.drops});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final drop in drops) {
+      final paint = Paint()
+        ..color = Color.fromRGBO(190, 215, 235, drop.opacity * drop.depth)
+        ..strokeWidth = drop.thickness * (0.55 + drop.depth * 0.65)
+        ..strokeCap = StrokeCap.round;
+      final head = Offset(drop.x * size.width, drop.y * size.height);
+      final velocity = Offset(drop.vx * size.width, drop.vy * size.height);
+      final velocityLength = math.max(0.001, velocity.distance).toDouble();
+      final tail = head - velocity / velocityLength * drop.length;
+      canvas.drawLine(tail, head, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RainPainter oldDelegate) => true;
+}
+
+class _SceneryPainter extends CustomPainter {
+  final int scene;
+  final bool city;
+
+  const _SceneryPainter({required this.scene, required this.city});
+
+  static const _mountainColors = [
+    Color(0xAA8E716B),
+    Color(0xAA507888),
+    Color(0xAA8F5962),
+    Color(0xCC131D38),
+    Color(0xAA72828B),
+  ];
+  static const _treeColors = [
+    Color(0xCC775D36),
+    Color(0xCC528239),
+    Color(0xCC774649),
+    Color(0xCC17251F),
+    Color(0xCC3E5448),
+  ];
+  static const _cityColors = [
+    Color(0xCC72594E),
+    Color(0xCC365B70),
+    Color(0xCC70464F),
+    Color(0xEE111A31),
+    Color(0xCC475761),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bandHeight = size.height * 0.72;
+    canvas.save();
+    canvas.translate(0, size.height - bandHeight);
+    final scenerySize = Size(size.width, bandHeight);
+    if (city) {
+      _paintCity(canvas, scenerySize);
+    } else {
+      _paintMountains(canvas, scenerySize);
+      _paintTrees(canvas, scenerySize);
+    }
+    canvas.restore();
+  }
+
+  void _paintMountains(Canvas canvas, Size size) {
+    final distant = Path()
+      ..moveTo(0, size.height * 0.78)
+      ..lineTo(size.width * 0.18, size.height * 0.30)
+      ..lineTo(size.width * 0.35, size.height * 0.73)
+      ..lineTo(size.width * 0.56, size.height * 0.2)
+      ..lineTo(size.width * 0.77, size.height * 0.76)
+      ..lineTo(size.width * 0.91, size.height * 0.38)
+      ..lineTo(size.width, size.height * 0.67)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(distant, Paint()..color = _mountainColors[scene]);
+
+    final nearer = Path()
+      ..moveTo(0, size.height * 0.82)
+      ..lineTo(size.width * 0.13, size.height * 0.53)
+      ..lineTo(size.width * 0.27, size.height * 0.77)
+      ..lineTo(size.width * 0.45, size.height * 0.44)
+      ..lineTo(size.width * 0.64, size.height * 0.83)
+      ..lineTo(size.width * 0.82, size.height * 0.55)
+      ..lineTo(size.width, size.height * 0.8)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(
+      nearer,
+      Paint()..color = _treeColors[scene].withValues(alpha: 0.76),
+    );
+  }
+
+  void _paintTrees(Canvas canvas, Size size) {
+    final treePaint = Paint()..color = _treeColors[scene];
+    for (var index = 0; index < 9; index++) {
+      final x = size.width * (index / 8);
+      final base = size.height;
+      final trunkWidth = size.width * 0.012;
+      final treeHeight = size.height * (0.48 + (index % 3) * 0.13);
+      canvas.drawRect(
+        Rect.fromLTWH(x - trunkWidth / 2, base - treeHeight * 0.45, trunkWidth,
+            treeHeight * 0.45),
+        treePaint,
+      );
+      final crown = Path()
+        ..moveTo(x, base - treeHeight)
+        ..lineTo(x + treeHeight * 0.24, base - treeHeight * 0.31)
+        ..lineTo(x - treeHeight * 0.24, base - treeHeight * 0.31)
+        ..close();
+      canvas.drawPath(crown, treePaint);
+      canvas.drawCircle(
+          Offset(x, base - treeHeight * 0.53), treeHeight * 0.2, treePaint);
+    }
+  }
+
+  void _paintCity(Canvas canvas, Size size) {
+    final buildingPaint = Paint()..color = _cityColors[scene];
+    final windowPaint = Paint()
+      ..color = scene == 3 ? const Color(0xFFFFD987) : const Color(0x88FFF2C2);
+    const buildingCount = 13;
+    final buildingWidth = size.width / buildingCount;
+    for (var index = 0; index < buildingCount; index++) {
+      final x = index * buildingWidth;
+      final heightFactor = [
+        0.52,
+        0.72,
+        0.61,
+        0.86,
+        0.57,
+        0.76,
+        0.48,
+        0.82,
+        0.63,
+        0.9,
+        0.54,
+        0.74,
+        0.59
+      ][index];
+      final buildingHeight = size.height * heightFactor;
+      final left = x + buildingWidth * 0.06;
+      final width = buildingWidth * 0.88;
+      final top = size.height - buildingHeight;
+      canvas.drawRect(
+        Rect.fromLTWH(left, top, width, buildingHeight),
+        buildingPaint,
+      );
+      if (index % 4 == 1) {
+        canvas.drawRect(
+          Rect.fromLTWH(left + width * 0.32, top - size.height * 0.12,
+              width * 0.36, size.height * 0.12),
+          buildingPaint,
+        );
+      }
+      for (var row = 0; row < 5; row++) {
+        final windowY = top + size.height * (0.09 + row * 0.13);
+        if (windowY > size.height - size.height * 0.06) break;
+        for (var column = 0; column < 2; column++) {
+          if ((index + row + column) % 3 == 0) continue;
+          canvas.drawRect(
+            Rect.fromLTWH(
+              left + width * (0.2 + column * 0.42),
+              windowY,
+              width * 0.16,
+              size.height * 0.045,
+            ),
+            windowPaint,
+          );
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SceneryPainter oldDelegate) =>
+      oldDelegate.scene != scene || oldDelegate.city != city;
 }
 
 class _GroundPropState {
