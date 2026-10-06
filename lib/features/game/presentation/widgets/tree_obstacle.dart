@@ -73,6 +73,21 @@ class _TreePainter extends CustomPainter {
       case 4:
         _drawTopiary(canvas, size, canopyHeight);
     }
+
+    // A soft upper-left sheen gives the canopy volume and catches the scene light.
+    canvas.drawOval(
+      Rect.fromLTWH(size.width * 0.16, canopyHeight * 0.12, size.width * 0.35,
+          canopyHeight * 0.2),
+      Paint()..color = const Color(0x447EF3A0),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(
+          centerX - size.width * 0.025,
+          trunkTop + canopyHeight * 0.12,
+          size.width * 0.025,
+          size.height * 0.82),
+      Paint()..color = const Color(0x44FFF0B8),
+    );
   }
 
   void _drawRoundCrown(Canvas canvas, Size size, double canopyHeight) {

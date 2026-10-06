@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
 
 class Bird extends StatelessWidget {
+  static const hitboxWidthFactor = 0.80;
+  static const hitboxHeightFactor = 0.64;
+  static const visibleCenterOffsetFactor = 0.08;
+
   final double size;
   final bool dying;
+  final Color reflectionTint;
 
-  const Bird({super.key, this.size = 100, this.dying = false});
+  const Bird({
+    super.key,
+    this.size = 100,
+    this.dying = false,
+    this.reflectionTint = Colors.white,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -13,7 +23,34 @@ class Bird extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/images/catrronbird.gif'),
+          Positioned(
+            left: size * 0.62,
+            top: size * 0.50,
+            width: size * 0.11,
+            height: size * 0.09,
+            child: const ClipOval(
+              child: ColoredBox(color: Color(0xFFFFFEFA)),
+            ),
+          ),
+          ShaderMask(
+            blendMode: BlendMode.srcATop,
+            shaderCallback: (bounds) => LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                reflectionTint.withValues(alpha: 0.3),
+                reflectionTint.withValues(alpha: 0.08),
+                Colors.transparent,
+              ],
+              stops: const [0, 0.58, 1],
+            ).createShader(bounds),
+            child: Image.asset(
+              'assets/images/catrronbird.gif',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              gaplessPlayback: true,
+            ),
+          ),
           if (dying)
             Positioned(
               left: size * 0.59,
