@@ -24,7 +24,7 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage> {
-  static const _sceneScoreInterval = 30;
+  static const _sceneScoreInterval = 40;
   static const _sceneSkyPalettes = <List<Color>>[
     [Color(0xFFFFD7A3), Color(0xFFFFB98C), Color(0xFFFFE3BD)], // Morning
     [Color(0xFF45B9F3), Color(0xFF91D9F5), Color(0xFFD8F1FF)], // Afternoon
