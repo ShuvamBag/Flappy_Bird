@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutterprojects/features/game/data/firebase_leaderboard.dart';
@@ -23,7 +24,7 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage> {
-  static const _sceneScoreInterval = 10;
+  static const _sceneScoreInterval = 30;
   static const _sceneSkyPalettes = <List<Color>>[
     [Color(0xFFFFD7A3), Color(0xFFFFB98C), Color(0xFFFFE3BD)], // Morning
     [Color(0xFF45B9F3), Color(0xFF91D9F5), Color(0xFFD8F1FF)], // Afternoon
@@ -121,6 +122,7 @@ class _GamePageState extends State<GamePage> {
   @override
   void initState() {
     super.initState();
+    if (kIsWeb) unawaited(BrowserContextMenu.disableContextMenu());
     unawaited(
       Future<void>.microtask(() {
         if (!mounted) return;
@@ -189,8 +191,10 @@ class _GamePageState extends State<GamePage> {
 
   void _advanceSomersault() {
     if (_somersaultRemaining <= 0) return;
-    const angularAcceleration = 0.035;
-    const maximumAngularSpeed = 0.48;
+    // Canvas coordinates grow downward, so negative angles spin anticlockwise.
+    // Accelerate into the flip, then brake early enough to land upright.
+    const angularAcceleration = 0.028;
+    const maximumAngularSpeed = 0.42;
     final brakingSpeed = math.sqrt(
       2 * angularAcceleration * _somersaultRemaining,
     );
@@ -198,7 +202,9 @@ class _GamePageState extends State<GamePage> {
     _somersaultVelocity += (targetSpeed - _somersaultVelocity) * 0.18;
     final angleStep = math.min(_somersaultRemaining, _somersaultVelocity);
     _somersaultRemaining -= angleStep;
-    _birdRotation += angleStep;
+    // Flutter's positive canvas rotation is clockwise, so subtract for a
+    // counterclockwise somersault.
+    _birdRotation -= angleStep;
     if (_somersaultRemaining < 0.01) {
       _somersaultRemaining = 0;
       _somersaultVelocity = 0;
@@ -488,6 +494,7 @@ class _GamePageState extends State<GamePage> {
   @override
   void dispose() {
     _gameTimer?.cancel();
+    if (kIsWeb) unawaited(BrowserContextMenu.enableContextMenu());
     _nameController.dispose();
     unawaited(_gameAudio.dispose());
     super.dispose();

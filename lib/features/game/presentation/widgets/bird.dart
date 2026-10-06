@@ -23,15 +23,6 @@ class Bird extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Positioned(
-            left: size * 0.62,
-            top: size * 0.50,
-            width: size * 0.11,
-            height: size * 0.09,
-            child: const ClipOval(
-              child: ColoredBox(color: Color(0xFFFFFEFA)),
-            ),
-          ),
           ShaderMask(
             blendMode: BlendMode.srcATop,
             shaderCallback: (bounds) => LinearGradient(
@@ -51,6 +42,13 @@ class Bird extends StatelessWidget {
               gaplessPlayback: true,
             ),
           ),
+          Positioned(
+            left: size * 0.59,
+            top: size * 0.485,
+            width: size * 0.15,
+            height: size * 0.115,
+            child: const CustomPaint(painter: _StableEyePainter()),
+          ),
           if (dying)
             Positioned(
               left: size * 0.59,
@@ -63,6 +61,49 @@ class Bird extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StableEyePainter extends CustomPainter {
+  const _StableEyePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final eye = Path()
+      ..moveTo(size.width * 0.04, size.height * 0.52)
+      ..cubicTo(size.width * 0.1, size.height * 0.18, size.width * 0.34,
+          size.height * 0.02, size.width * 0.62, size.height * 0.06)
+      ..cubicTo(size.width * 0.87, size.height * 0.08, size.width * 0.98,
+          size.height * 0.3, size.width * 0.96, size.height * 0.55)
+      ..cubicTo(size.width * 0.94, size.height * 0.84, size.width * 0.75,
+          size.height * 0.97, size.width * 0.52, size.height * 0.95)
+      ..cubicTo(size.width * 0.27, size.height * 0.94, size.width * 0.08,
+          size.height * 0.78, size.width * 0.04, size.height * 0.52)
+      ..close();
+    canvas.drawPath(eye, Paint()..color = const Color(0xFFFFFEFA));
+    canvas.drawPath(
+      eye,
+      Paint()
+        ..color = const Color(0xFF351719)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = size.width * 0.055,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.7, size.height * 0.55),
+        width: size.width * 0.39,
+        height: size.height * 0.72,
+      ),
+      Paint()..color = const Color(0xFF271215),
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.73, size.height * 0.35),
+      size.width * 0.07,
+      Paint()..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _StableEyePainter oldDelegate) => false;
 }
 
 class _DizzyEyePainter extends CustomPainter {

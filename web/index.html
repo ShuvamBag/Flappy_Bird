@@ -131,6 +131,11 @@
     <div class="loader-ground" aria-hidden="true"></div>
   </div>
   <script>
+    // Right click is a game input, so keep the browser menu from intercepting it.
+    window.addEventListener('contextmenu', function (event) {
+      event.preventDefault();
+    });
+
     window.addEventListener('flutter-first-frame', function () {
       var screen = document.getElementById('loading-screen');
       if (!screen) return;
